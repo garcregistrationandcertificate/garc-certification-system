@@ -1,6 +1,6 @@
 const seed=[{id:1,title:"Medicinal Plant Monograph Development Workshop",type:"Workshop",date:"2026-11-20",venue:"GARC Mysuru",deadline:"2026-11-15",capacity:100,desc:"Hands-on workshop on medicinal plant monograph development."},{id:2,title:"Techno Ayurveda — 2nd Edition",type:"Conference",date:"2026-12-05",venue:"Mysuru",deadline:"2026-11-28",capacity:250,desc:"Interdisciplinary dialogue connecting Ayurveda and technology."},{id:3,title:"Yoga & Healthy Ageing Webinar",type:"Webinar",date:"2026-12-12",venue:"Online",deadline:"2026-12-10",capacity:500,desc:"Yoga and healthy ageing."}];
 let events=JSON.parse(localStorage.getItem("ge_events")||"null")||seed,regs=JSON.parse(localStorage.getItem("ge_regs")||"[]"),brand=JSON.parse(localStorage.getItem("ge_brand")||"{}");
-function save(){localStorage.setItem("ge_events",JSON.stringify(events));localStorage.setItem("ge_regs",JSON.stringify(regs))}
+function save(){localStorage.setItem("ge_events",JSON.stringify(events));localStorage.setItem("ge_regs",JSON.stringify(regs));garcSaveCloud();}
 function show(id){document.querySelectorAll(".panel").forEach(x=>x.classList.remove("active"));document.getElementById(id).classList.add("active");if(id==="register")fillSelect();if(id==="admin"){if(adminLogged){adminLoginBox.style.display="none";adminContent.style.display="block";renderRegs();loadBrand()}else{adminLoginBox.style.display="block";adminContent.style.display="none"}}window.scrollTo({top:260,behavior:"smooth"})}
 function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function renderEvents(){let q=search.value.toLowerCase(),f=filter.value;let a=events.filter(e=>(e.title+" "+e.type).toLowerCase().includes(q)&&(!f||e.type===f));eventGrid.innerHTML=a.map(e=>`<article class="card"><span class="tag">${esc(e.type)}</span><h3>${esc(e.title)}</h3><p class="muted">📅 ${esc(e.date)} ${esc(e.start||"")}–${esc(e.end||"")} · 📍 ${esc(e.venue)}</p><p>${esc(e.desc)}</p><p class="muted">Deadline: ${esc(e.deadline||"Not specified")}</p><div class="actions"><button onclick="selectEvent(${e.id})">Register</button><button class="btn secondary" onclick="alert('${esc(e.title)}\\n${esc(e.desc)}')">Details</button></div></article>`).join("")||"No matching events"}
@@ -24,13 +24,15 @@ function resetDemo(){if(confirm("Reset demo events and registrations?")){events=
 
 const ADMIN_USER="Drshenoy",ADMIN_PASS="Garc@636322";
 let adminLogged=false;
-document.getElementById("loginForm").onsubmit=e=>{
+document.getElementById("loginForm").onsubmit=async e=>{
  e.preventDefault();
  const u=document.getElementById("loginUser").value.trim(),p=document.getElementById("loginPass").value;
  const m=document.getElementById("loginMsg");
- if(u===ADMIN_USER&&p===ADMIN_PASS){adminLogged=true;document.getElementById("adminLoginBox").style.display="none";document.getElementById("adminContent").style.display="block";m.className="msg";loadBrand();renderRegs();}
- else{m.className="msg err";m.textContent="Incorrect login ID or password. Try again."}
+ if(!garcSB){m.className="msg err";m.textContent="Configure Supabase in supabase-config.js first.";return;}
+ const {data,error}=await garcSB.auth.signInWithPassword({email:u,password:p});
+ if(!error&&data.user){adminLogged=true;document.getElementById("adminLoginBox").style.display="none";document.getElementById("adminContent").style.display="block";m.className="msg";loadBrand();renderRegs();await garcInitCloud();}
+ else{m.className="msg err";m.textContent="Login failed. Use Supabase admin email/password."}
 };
 function logoutAdmin(){adminLogged=false;document.getElementById("adminContent").style.display="none";document.getElementById("adminLoginBox").style.display="block";document.getElementById("loginPass").value="";document.getElementById("loginMsg").className="msg";}
 
-renderEvents();fillSelect();
+renderEvents();fillSelect();garcInitCloud();
