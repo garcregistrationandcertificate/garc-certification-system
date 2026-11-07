@@ -1,7 +1,12 @@
-GARC SUPABASE DEPLOYMENT
-1. Run SUPABASE_SETUP.sql in Supabase SQL Editor.
-2. Edit supabase-config.js: add exact Supabase Project URL and publishable/anon key.
-3. Supabase Authentication > Users: create admin email/password; disable public signups.
-4. Replace files in GitHub Pages repo with index.html, script.js, style.css, garc-logo.jpg, supabase-config.js.
-5. Admin login now requires Supabase email/password.
-WARNING: SQL policies let any authenticated account access admin tables. Keep public signup disabled and create only trusted admin accounts. Never expose service_role key.
+GARC COMPLETE SYNCHRONIZATION PACKAGE
+
+1. Backup your current GitHub repository files.
+2. Supabase Dashboard > SQL Editor: paste and RUN SUPABASE_SETUP.sql. This is additive and does not delete existing records.
+3. Upload/replace index.html, script.js, style.css, supabase-config.js, garc-logo.jpg in your GitHub repository (keep same filenames).
+4. Wait for GitHub Pages deployment.
+5. Admin login with your existing Supabase Auth email/password.
+6. Admin panel: click “Sync / Migrate Existing Records” to merge local browser records into Supabase. Existing cloud records are retained.
+
+Events are publicly readable and admin-managed; registration submissions write directly to Supabase; admin registration list and branding load from cloud. Certificate mobile lookup currently uses records loaded in that browser/admin session; public access to the full registrations table is intentionally NOT enabled because it exposes student personal information.
+
+Never put a Supabase service-role key in frontend files. Only publishable/anon key belongs in supabase-config.js.
