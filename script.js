@@ -1,3 +1,37 @@
+// Supabase client and synchronization helpers
+const garcSB = (window.supabase && window.SUPABASE_URL && window.SUPABASE_KEY)
+  ? window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_KEY) : null;
+let garcCloudReady=false;
+async function garcInitCloud(){
+  if(!garcSB)return;
+  try{
+    const {data:evRows,error:evErr}=await garcSB.from('events').select('id,payload');
+    if(evErr) throw evErr;
+    if(evRows && evRows.length){ events=evRows.map(x=>x.payload).filter(Boolean); localStorage.setItem('ge_events',JSON.stringify(events)); }
+    if((await garcSB.auth.getSession()).data.session){
+      const {data:regRows,error:regErr}=await garcSB.from('registrations').select('registration_code,payload');
+      if(!regErr && regRows){ regs=regRows.map(x=>x.payload).filter(Boolean); localStorage.setItem('ge_regs',JSON.stringify(regs)); }
+    }
+    garcCloudReady=true; renderEvents(); fillSelect(); if(adminLogged)renderRegs();
+  }catch(err){console.error('GARC cloud load:',err);}
+}
+async function garcSaveCloud(){
+  if(!garcSB)return;
+  try{
+    const session=(await garcSB.auth.getSession()).data.session;
+    // Public event records are synced after admin sign-in only.
+    if(session){
+      const ev=events.map(e=>({id:Number(e.id),payload:e}));
+      if(ev.length) await garcSB.from('events').upsert(ev,{onConflict:'id'});
+      const rr=regs.map(r=>({registration_code:String(r.id),payload:r}));
+      if(rr.length) await garcSB.from('registrations').upsert(rr,{onConflict:'registration_code'});
+    }else{
+      // Anonymous visitors can submit registrations; event sync is admin-only.
+      const last=regs[regs.length-1]; if(last) await garcSB.from('registrations').insert({registration_code:String(last.id),payload:last});
+    }
+  }catch(err){console.error('GARC cloud save:',err);}
+}
+
 const seed=[{id:1,title:"Medicinal Plant Monograph Development Workshop",type:"Workshop",date:"2026-11-20",venue:"GARC Mysuru",deadline:"2026-11-15",capacity:100,desc:"Hands-on workshop on medicinal plant monograph development."},{id:2,title:"Techno Ayurveda — 2nd Edition",type:"Conference",date:"2026-12-05",venue:"Mysuru",deadline:"2026-11-28",capacity:250,desc:"Interdisciplinary dialogue connecting Ayurveda and technology."},{id:3,title:"Yoga & Healthy Ageing Webinar",type:"Webinar",date:"2026-12-12",venue:"Online",deadline:"2026-12-10",capacity:500,desc:"Yoga and healthy ageing."}];
 let events=JSON.parse(localStorage.getItem("ge_events")||"null")||seed,regs=JSON.parse(localStorage.getItem("ge_regs")||"[]"),brand=JSON.parse(localStorage.getItem("ge_brand")||"{}");
 function save(){localStorage.setItem("ge_events",JSON.stringify(events));localStorage.setItem("ge_regs",JSON.stringify(regs));garcSaveCloud();}
@@ -31,7 +65,7 @@ document.getElementById("loginForm").onsubmit=async e=>{
  if(!garcSB){m.className="msg err";m.textContent="Configure Supabase in supabase-config.js first.";return;}
  const {data,error}=await garcSB.auth.signInWithPassword({email:u,password:p});
  if(!error&&data.user){adminLogged=true;document.getElementById("adminLoginBox").style.display="none";document.getElementById("adminContent").style.display="block";m.className="msg";loadBrand();renderRegs();await garcInitCloud();}
- else{m.className="msg err";m.textContent="Login failed. Use Supabase admin email/password."}
+ else{m.className="msg err";m.textContent=error?.message||"Login failed. Check email/password and Supabase Auth user."}
 };
 function logoutAdmin(){adminLogged=false;document.getElementById("adminContent").style.display="none";document.getElementById("adminLoginBox").style.display="block";document.getElementById("loginPass").value="";document.getElementById("loginMsg").className="msg";}
 
