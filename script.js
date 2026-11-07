@@ -1,9 +1,9 @@
 // Supabase client and synchronization helpers
 const garcSB = (window.supabase && window.SUPABASE_URL && window.SUPABASE_KEY)
   ? window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_KEY) : null;
-let garcCloudReady=false;\nlet garcCloudStatus='Connecting to Supabase…';
+let garcCloudReady=false;
 async function garcInitCloud(){
-  if(!garcSB){garcCloudStatus='Supabase client not configured';return;}
+  if(!garcSB)return;
   try{
     const {data:evRows,error:evErr}=await garcSB.from('events').select('id,payload');
     if(evErr) throw evErr;
@@ -12,8 +12,8 @@ async function garcInitCloud(){
       const {data:regRows,error:regErr}=await garcSB.from('registrations').select('registration_code,payload');
       if(!regErr && regRows){ regs=regRows.map(x=>x.payload).filter(Boolean); localStorage.setItem('ge_regs',JSON.stringify(regs)); }
     }
-    garcCloudReady=true; garcCloudStatus='Connected to Supabase'; renderEvents(); fillSelect(); if(adminLogged)renderRegs();
-  }catch(err){garcCloudStatus='Cloud load failed: '+(err.message||err);console.error('GARC cloud load:',err);}
+    garcCloudReady=true; renderEvents(); fillSelect(); if(adminLogged)renderRegs();
+  }catch(err){console.error('GARC cloud load:',err);}
 }
 async function garcSaveCloud(){
   if(!garcSB)return;
