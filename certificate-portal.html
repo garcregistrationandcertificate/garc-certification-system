@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GARC Certificate Download Portal</title>
+  <style>
+    :root{--green:#174f36;--gold:#b58b36;--ink:#23352d;--muted:#65756e;--paper:#fff;--bg:#f3f6f2}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);font-family:Arial,Helvetica,sans-serif;color:var(--ink)}
+    header{background:var(--green);color:#fff;padding:24px 18px;text-align:center;border-bottom:5px solid var(--gold)}
+    header h1{font-size:clamp(21px,4vw,30px);margin:0 0 8px}header p{margin:0;opacity:.9}
+    main{max-width:760px;margin:34px auto;padding:0 16px}.panel{background:var(--paper);border:1px solid #dce5dc;border-radius:14px;padding:clamp(20px,4vw,34px);box-shadow:0 8px 26px #183b2410}
+    h2{margin-top:0;color:var(--green)}.intro{color:var(--muted);line-height:1.6}
+    label{display:block;font-weight:700;font-size:14px;margin:18px 0 7px}input{width:100%;padding:13px 14px;border:1px solid #bccbbf;border-radius:8px;font-size:16px}
+    button{margin-top:20px;background:var(--green);color:white;border:0;border-radius:8px;padding:13px 20px;font-size:16px;font-weight:700;cursor:pointer}button:disabled{opacity:.6;cursor:wait}
+    .message{display:none;padding:13px 15px;border-radius:8px;margin-top:18px;line-height:1.5}.error{display:block;background:#fff0ef;color:#982d27}.info{display:block;background:#edf4ef;color:#28533a}.success{display:block;background:#eaf6ee;color:#1c6037}
+    .result{margin-top:18px}.card{border:1px solid #dce5dc;border-radius:10px;padding:18px}.small{font-size:13px;color:var(--muted);line-height:1.5}.foot{text-align:center;color:var(--muted);font-size:12px;margin:20px 0 34px}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>GARC Certificate Download Portal</h1>
+    <p>Government Ayurveda Research Centre, Mysuru · Department of AYUSH</p>
+  </header>
+  <main>
+    <section class="panel">
+      <h2>Find your certificate</h2>
+      <p class="intro">Enter the registration ID shown after registration and the same mobile number used in your registration. You can access your certificate from any device.</p>
+      <form id="lookupForm">
+        <label for="registrationCode">Registration ID</label>
+        <input id="registrationCode" required autocomplete="off" placeholder="Example: GARC-12345678">
+        <label for="mobile">Registered mobile number</label>
+        <input id="mobile" required inputmode="tel" autocomplete="tel" placeholder="Enter your registered mobile number">
+        <button id="lookupButton" type="submit">Verify and find certificate</button>
+      </form>
+      <div id="message" class="message" role="status" aria-live="polite"></div>
+      <div id="result" class="result"></div>
+    </section>
+    <p class="foot">For assistance with a lost registration ID or incorrect registration details, contact the GARC programme administrator.</p>
+  </main>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="supabase-config.js"></script>
+  <script>
+    const client = (window.supabase && window.SUPABASE_URL && window.SUPABASE_KEY)
+      ? window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_KEY) : null;
+    let certificateData = null;
+    const form = document.getElementById('lookupForm');
+    const message = document.getElementById('message');
+    const resultBox = document.getElementById('result');
+    const lookupButton = document.getElementById('lookupButton');
+    function htmlEscape(value){return String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+    function showMessage(kind,text){message.className='message '+kind;message.textContent=text;}
+    form.addEventListener('submit', async (event)=>{
+      event.preventDefault(); certificateData=null; resultBox.innerHTML='';
+      if(!client){showMessage('error','Certificate portal is not configured. Please contact GARC.');return;}
+      const registrationCode=document.getElementById('registrationCode').value.trim();
+      const mobile=document.getElementById('mobile').value.trim();
+      if(!registrationCode || !mobile){showMessage('error','Enter both your registration ID and registered mobile number.');return;}
+      lookupButton.disabled=true; lookupButton.textContent='Verifying…'; showMessage('info','Checking your registration in the central GARC database…');
+      try{
+        const {data,error}=await client.rpc('garc_public_certificate_lookup',{
+          p_registration_code:registrationCode,
+          p_mobile:mobile
+        });
+        if(error) throw error;
+        const response=data || {};
+        if(!response.success){showMessage('error',response.message || 'Registration not found. Check the details and try again.');return;}
+        if(!response.ready){
+          const release=response.release_at ? new Date(response.release_at).toLocaleString('en-IN',{dateStyle:'medium',timeStyle:'short',timeZone:'Asia/Kolkata'}) : 'after the programme ends';
+          showMessage('info',`Registration verified for ${response.participant?.name || 'participant'}. The certificate will be available after the programme. Expected release: ${release} IST.`);
+          return;
+        }
+        certificateData=response;
+        showMessage('success','Registration verified. Your certificate is ready.');
+        resultBox.innerHTML=`<div class="card"><h3>${htmlEscape(response.event?.title || 'GARC Programme')}</h3><p><b>Participant:</b> ${htmlEscape(response.participant?.name || '')}</p><p><b>Certificate ID:</b> ${htmlEscape(response.certificate?.number || '')}</p><p class="small">Your certificate is retrieved from the central GARC database. Use your browser print dialog and choose “Save as PDF” to download it.</p><button type="button" id="downloadButton">Download / Print Certificate (Save as PDF)</button></div>`;
+        document.getElementById('downloadButton').addEventListener('click',downloadCertificate);
+      }catch(error){console.error(error);showMessage('error','Certificate lookup failed: '+(error.message || String(error)));}
+      finally{lookupButton.disabled=false;lookupButton.textContent='Verify and find certificate';}
+    });
+    function downloadCertificate(){
+      if(!certificateData?.ready){showMessage('error','Please verify your registration again.');return;}
+      const w=window.open('','_blank');if(!w){showMessage('error','Allow pop-ups for this website and try again.');return;}
+      const p=certificateData.participant||{},e=certificateData.event||{},c=certificateData.certificate||{},b=certificateData.branding||{};
+      const wording=(b.wording || 'This is to certify that {NAME} has participated in {EVENT}, held on {DATE} from {START} to {END}, organised by Government Ayurveda Research Centre, Mysuru.')
+        .replaceAll('{NAME}',p.name||'').replaceAll('{EVENT}',e.title||'GARC Programme').replaceAll('{DATE}',e.date||'').replaceAll('{START}',e.start||'').replaceAll('{END}',e.end||'');
+      w.document.open();
+      w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>GARC Certificate</title><style>
+        @page{size:A4 landscape;margin:10mm}*{box-sizing:border-box}body{font-family:Georgia,serif;color:#173f2e;text-align:center;padding:20px}.frame{border:8px double #bd9238;padding:25px 45px;min-height:480px;position:relative}.top{font:bold 15px Arial;letter-spacing:1.5px;color:#245c43;line-height:1.7}.logo{max-height:75px;max-width:160px;object-fit:contain;margin-bottom:8px}.title{font-size:34px;color:#ad8124;margin:20px 0}.name{font-size:32px;font-weight:bold;color:#174f36;border-bottom:1px solid #b99a55;display:inline-block;padding:8px 60px}.desc{font-size:19px;line-height:1.8;max-width:850px;margin:20px auto}.sign{max-height:65px;max-width:180px;object-fit:contain;display:block;margin:0 auto -5px}.bottom{display:flex;justify-content:space-between;align-items:end;margin-top:35px;font:14px Arial}.issuer{font-weight:bold}.foot{font:11px Arial;color:#777;margin-top:20px}@media print{body{padding:0}}
+      </style></head><body><div class="frame">${b.logo?`<img class="logo" src="${htmlEscape(b.logo)}" alt="Logo">`:''}<div class="top">${htmlEscape(b.line1||'GOVERNMENT OF KARNATAKA')}<br>${htmlEscape(b.line2||'DEPARTMENT OF AYUSH')}<br>${htmlEscape(b.line3||'GOVERNMENT AYURVEDA RESEARCH CENTRE, MYSURU')}</div><div class="title">${htmlEscape(b.heading||'CERTIFICATE OF PARTICIPATION')}</div><p>This certificate is proudly presented to</p><div class="name">${htmlEscape(p.name||'')}</div><div class="desc">${htmlEscape(wording)}</div><div class="bottom"><div>Certificate ID: ${htmlEscape(c.number||'')}</div><div class="issuer">${b.signature?`<img class="sign" src="${htmlEscape(b.signature)}" alt="Signature">`:''}${htmlEscape(b.issuer||'Authorised Signatory')}<br>${htmlEscape(b.role||'')}</div></div><div class="foot">Government Ayurveda Research Centre, Mysuru · Department of AYUSH, Government of Karnataka</div></div><script>\n(async()=>{\n  const imgs=[...document.images];\n  await Promise.all(imgs.map(img=>img.decode().catch(()=>new Promise(resolve=>{img.onload=resolve;img.onerror=resolve;setTimeout(resolve,8000)}))));\n  setTimeout(()=>window.print(),350);\n})();\n<\/script></body></html>`);
+      w.document.close();
+    }
+  </script>
+</body>
+</html>
