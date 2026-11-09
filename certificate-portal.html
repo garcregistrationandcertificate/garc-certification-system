@@ -39,6 +39,7 @@
     <p class="foot">For assistance with a lost registration ID or incorrect registration details, contact the GARC programme administrator.</p>
   </main>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="supabase-config.js"></script>
   <script>
     const client = (window.supabase && window.SUPABASE_URL && window.SUPABASE_KEY)
@@ -72,7 +73,7 @@
         }
         certificateData=response;
         showMessage('success','Registration verified. Your certificate is ready.');
-        resultBox.innerHTML=`<div class="card"><h3>${htmlEscape(response.event?.title || 'GARC Programme')}</h3><p><b>Participant:</b> ${htmlEscape(response.participant?.name || '')}</p><p><b>Certificate ID:</b> ${htmlEscape(response.certificate?.number || '')}</p><p class="small">Your certificate is retrieved from the central GARC database. Use your browser print dialog and choose “Save as PDF” to download it.</p><button type="button" id="downloadButton">Download / Print Certificate (Save as PDF)</button></div>`;
+        resultBox.innerHTML=`<div class="card"><h3>${htmlEscape(response.event?.title || 'GARC Programme')}</h3><p><b>Participant:</b> ${htmlEscape(response.participant?.name || '')}</p><p><b>Certificate ID:</b> ${htmlEscape(response.certificate?.number || '')}</p><p class="small">Your certificate is retrieved from the central GARC database. Use your browser print dialog and choose “Save as PDF” to download it.</p><button type="button" id="downloadButton">Download Certificate (PDF)</button></div>`;
         document.getElementById('downloadButton').addEventListener('click',downloadCertificate);
       }catch(error){console.error(error);showMessage('error','Certificate lookup failed: '+(error.message || String(error)));}
       finally{lookupButton.disabled=false;lookupButton.textContent='Verify and find certificate';}
@@ -82,29 +83,54 @@
       const p=certificateData.participant||{},e=certificateData.event||{},c=certificateData.certificate||{};
       let b=certificateData.branding||{};
       if(typeof b==='string'){try{b=JSON.parse(b)}catch(_){b={}}}
-      if(!b||typeof b!=='object')b={};
-      const logo=typeof b.logo==='string'?b.logo.trim():'';
-      const signature=typeof b.signature==='string'?b.signature.trim():'';
-      if(!logo||!signature){console.warn('Branding missing in RPC response',Object.keys(b));showMessage('error','Supabase did not return the saved logo/signature. Please contact GARC administrator.');return;}
-      const wording=(b.wording||'This is to certify that {NAME} has participated in {EVENT}, held on {DATE} from {START} to {END}, organised by Government Ayurveda Research Centre, Mysuru.')
+      const logo=String(b.logo||'').trim(), signature=String(b.signature||'').trim();
+      if(!logo || !signature){
+        showMessage('error','Logo/signature not received from Supabase. Contact GARC administrator.');
+        console.error('Missing certificate branding',Object.keys(b));return;
+      }
+      if(!window.jspdf?.jsPDF){showMessage('error','PDF library failed to load. Check internet connection and retry.');return;}
+      const button=document.getElementById('downloadButton');
+      if(button){button.disabled=true;button.textContent='Preparing certificate…';}
+      try{
+        const loadImage=src=>new Promise((resolve,reject)=>{
+          const im=new Image();im.onload=()=>resolve(im);im.onerror=()=>reject(new Error('Could not decode certificate logo/signature image'));im.src=src;
+        if(im.complete&&im.naturalWidth)resolve(im);
+      });
+      const [logoImg,signImg]=await Promise.all([loadImage(logo),loadImage(signature)]);
+      const {jsPDF}=window.jspdf;
+      const pdf=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
+      const W=297,H=210,green=[23,63,46],gold=[189,146,56];
+      pdf.setDrawColor(...gold);pdf.setLineWidth(2);pdf.rect(8,8,W-16,H-16);
+      pdf.setLineWidth(.5);pdf.rect(12,12,W-24,H-24);
+      const addImageFit=(img,x,y,maxW,maxH)=>{
+        const ratio=img.naturalWidth/img.naturalHeight;
+        let w=maxW,h=w/ratio;if(h>maxH){h=maxH;w=h*ratio;}
+        pdf.addImage(img,undefined,x+(maxW-w)/2,y,w,h,undefined,'FAST');
+      };
+      addImageFit(logoImg,18,15,35,20);
+      pdf.setTextColor(...green);pdf.setFont('helvetica','bold');pdf.setFontSize(11);
+      pdf.text(String(b.line1||'GOVERNMENT OF KARNATAKA'),W/2,24,{align:'center'});
+      pdf.text(String(b.line2||'DEPARTMENT OF AYUSH'),W/2,30,{align:'center'});
+      pdf.text(String(b.line3||'GOVERNMENT AYURVEDA RESEARCH CENTRE, MYSURU'),W/2,36,{align:'center'});
+      pdf.setTextColor(...gold);pdf.setFontSize(25);pdf.text(String(b.heading||'CERTIFICATE OF PARTICIPATION'),W/2,55,{align:'center'});
+      pdf.setTextColor(70,70,70);pdf.setFont('helvetica','normal');pdf.setFontSize(13);pdf.text('This certificate is proudly presented to',W/2,68,{align:'center'});
+      pdf.setTextColor(...green);pdf.setFont('times','bold');pdf.setFontSize(26);pdf.text(String(p.name||''),W/2,83,{align:'center'});
+      pdf.setDrawColor(...gold);pdf.line(65,88,232,88);
+      const wording=String(b.wording||'This is to certify that {NAME} has participated in {EVENT}, held on {DATE} from {START} to {END}, organised by Government Ayurveda Research Centre, Mysuru.')
         .replaceAll('{NAME}',p.name||'').replaceAll('{EVENT}',e.title||'GARC Programme').replaceAll('{DATE}',e.date||'').replaceAll('{START}',e.start||'').replaceAll('{END}',e.end||'');
-      const w=window.open('','_blank');if(!w){showMessage('error','Allow pop-ups for this website and try again.');return;}
-      w.document.open();
-      w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>GARC Certificate</title><style>
-      @page{size:A4 landscape;margin:8mm}*{box-sizing:border-box}html,body{margin:0;padding:0;font-family:Georgia,serif;color:#173f2e}body{padding:5mm;text-align:center}
-      .frame{border:7px double #bd9238;padding:8mm 12mm;min-height:180mm;position:relative;display:flex;flex-direction:column;align-items:center}
-      .logo{display:block;width:auto;height:auto;max-width:150px;max-height:65px;object-fit:contain;margin:0 auto 5mm}
-      .top{font:bold 14px Arial;letter-spacing:1px;color:#245c43;line-height:1.65}.title{font-size:30px;color:#ad8124;margin:8mm 0 4mm}
-      .name{font-size:28px;font-weight:bold;color:#174f36;border-bottom:1px solid #b99a55;display:inline-block;padding:5mm 25mm;margin:3mm 0}
-      .desc{font-size:17px;line-height:1.65;max-width:235mm;margin:5mm auto}.bottom{width:100%;display:flex;justify-content:space-between;align-items:flex-end;margin-top:auto;padding-top:8mm;font:13px Arial}
-      .issuer{font-weight:bold;min-width:55mm}.sign{display:block;width:auto;height:auto;max-width:55mm;max-height:25mm;object-fit:contain;margin:0 auto 2mm}.foot{font:10px Arial;color:#777;margin-top:5mm}
-      @media print{body{padding:0}.frame{min-height:180mm}}</style></head><body><div class="frame">
-      <img class="logo" id="garcLogo" src="${logo}" alt="GARC Logo"><div class="top">${htmlEscape(b.line1||'GOVERNMENT OF KARNATAKA')}<br>${htmlEscape(b.line2||'DEPARTMENT OF AYUSH')}<br>${htmlEscape(b.line3||'GOVERNMENT AYURVEDA RESEARCH CENTRE, MYSURU')}</div>
-      <div class="title">${htmlEscape(b.heading||'CERTIFICATE OF PARTICIPATION')}</div><p>This certificate is proudly presented to</p><div class="name">${htmlEscape(p.name||'')}</div><div class="desc">${htmlEscape(wording)}</div>
-      <div class="bottom"><div>Certificate ID: ${htmlEscape(c.number||'')}</div><div class="issuer"><img class="sign" id="garcSignature" src="${signature}" alt="Authorised Signature">${htmlEscape(b.issuer||'Authorised Signatory')}<br>${htmlEscape(b.role||'')}</div></div>
-      <div class="foot">Government Ayurveda Research Centre, Mysuru · Department of AYUSH, Government of Karnataka</div></div>
-      <script>window.addEventListener('load',async()=>{const imgs=[document.getElementById('garcLogo'),document.getElementById('garcSignature')];try{await Promise.all(imgs.map(img=>new Promise((res,rej)=>{if(img.complete&&img.naturalWidth>0)return res();img.onload=res;img.onerror=()=>rej(new Error('Image failed'));})));requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(()=>window.print(),500)));}catch(err){document.body.insertAdjacentHTML('afterbegin','<p style="color:red">Logo/signature failed to load. Close and retry.</p>');console.error(err);}});<\/script></body></html>`);
-      w.document.close();
+      pdf.setTextColor(45,55,48);pdf.setFont('times','normal');pdf.setFontSize(14);
+      const lines=pdf.splitTextToSize(wording,220);pdf.text(lines,W/2,101,{align:'center',lineHeightFactor:1.5});
+      addImageFit(signImg,222,145,42,20);
+      pdf.setTextColor(...green);pdf.setFont('helvetica','bold');pdf.setFontSize(10);
+      pdf.text(String(b.issuer||'Authorised Signatory'),243,170,{align:'center'});
+      pdf.setFont('helvetica','normal');pdf.text(String(b.role||''),243,176,{align:'center'});
+      pdf.setTextColor(80,80,80);pdf.setFontSize(10);pdf.text('Certificate ID: '+String(c.number||''),20,180);
+      pdf.setFontSize(8);pdf.text('Government Ayurveda Research Centre, Mysuru · Department of AYUSH, Government of Karnataka',W/2,193,{align:'center'});
+      const safeName=String(p.name||'Candidate').replace(/[^a-z0-9_-]+/gi,'_');
+      pdf.save('GARC_Certificate_'+safeName+'.pdf');
+      showMessage('success','Certificate PDF downloaded with GARC logo and signature embedded.');
+      }catch(err){console.error(err);showMessage('error','PDF generation failed: '+(err.message||err));}
+      finally{if(button){button.disabled=false;button.textContent='Download Certificate (PDF)';}}
     }
   </script>
 </body>
